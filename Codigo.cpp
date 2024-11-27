@@ -102,12 +102,13 @@ void cargarCSV(const string& nombreArchivo, ListaReproduccion& lista) {
     while (getline(archivo, linea)) {
         stringstream ss(linea);
         string artist, track, id, genre;
-        int popularity, year, key, duration_ms, time_signature;
+        int popularity, year, key, duration_ms, time_signature,n;
         float danceability, energy, loudness, speechiness,
               acousticness, instrumentalness, liveness,
               valence, tempo;
         bool mode;
 
+        ss >> n; ss.ignore();
         getline(ss, artist, ',');
         getline(ss, track, ',');
         getline(ss, id, ',');

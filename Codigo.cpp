@@ -801,6 +801,33 @@ int main() {
     }
 Pagina listar_canciones_paginado(size_t pagina = 1, size_t canciones_por_pagina = 200) const {
  auto todas_canciones = bTree.listar();
- return paginar(todas_canciones, pagina, canciones_por_pagina);
+ return paginar(todas_canciones, pagina, canciones_por_pagina);}
+    size_t mostrar_menu_navegacion(size_t pagina, size_t total_paginas, bool& navegando) {
+  cout << "\nOpciones:\n";
+   cout << "1. Página siguiente\n";
+   cout << "2. Página anterior\n";
+   cout << "3. Ir a página específica\n";
+   cout << "4. Salir\n";
+
+   int opcion;
+  cin >> opcion;
+
+ switch (opcion) {
+        case 1:
+            return min(pagina + 1, total_paginas);
+        case 2:
+            return max(pagina - 1, static_cast<size_t>(1));
+        case 3:
+            cout << "Ingrese el número de página (1-" << total_paginas << "): ";
+            cin >> pagina;
+            return min(max(pagina, static_cast<size_t>(1)), total_paginas);
+        case 4:
+            navegando = false;
+           return pagina;
+        default:
+            return pagina;
+    }
+}
+
     return 0;
 }

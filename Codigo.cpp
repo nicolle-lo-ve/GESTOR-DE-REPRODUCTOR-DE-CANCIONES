@@ -11,6 +11,9 @@
 #include <iomanip>
 #include <cstdlib>
 #include <ctime>
+#include <chrono>
+#include <locale>
+#include <cctype>
 
 using namespace std;
 
@@ -86,7 +89,7 @@ public:
     float valence;
     float tempo;
     int duration_ms;
-    int time_signature; // Nuevo campo del segundo código
+    int time_signature; 
 
     // Constructor predeterminado
     Cancion() = default;
@@ -222,6 +225,81 @@ public:
     }
 };
 
+vector<Cancion> cargar_csv_por_prefijo(const string& file_path, const string& prefijo, bool por_artista) {
+    vector<Cancion> canciones;
+    ifstream file(file_path, ios::binary);
+   
+    if (!file.is_open()) {
+        throw runtime_error("No se pudo abrir el archivo: " + file_path);
+    }
+
+    string linea;
+    getline(file, linea); // Saltar encabezado
+
+    // Crear una localización para la conversión a minúsculas
+    std::locale loc;
+
+    while (getline(file, linea)) {
+        vector<string> campos;
+        size_t pos = 0;
+        size_t next_pos = 0;
+        while ((next_pos = linea.find(',', pos)) != string::npos) {
+            campos.push_back(linea.substr(pos, next_pos - pos));
+            pos = next_pos + 1;
+        }
+        campos.push_back(linea.substr(pos));
+
+        // Verificar si comienza con el prefijo
+        string texto_busqueda = por_artista ? campos[1] : campos[2];
+       
+        // Convertir a minúsculas para búsqueda insensible a mayúsculas
+        transform(texto_busqueda.begin(), texto_busqueda.end(), texto_busqueda.begin(),
+                  [&loc](char c) { return std::tolower(c, loc); });
+        string prefijo_lower = prefijo;
+        transform(prefijo_lower.begin(), prefijo_lower.end(), prefijo_lower.begin(),
+                  [&loc](char c) { return std::tolower(c, loc); });
+
+        // Solo agregar si comienza con el prefijo
+        if (texto_busqueda.substr(0, prefijo_lower.length()) == prefijo_lower) {
+            try {
+                auto safe_stoi = [](const string& s) {
+                    return s.empty() ? 0 : stoi(s);
+                };
+
+                auto safe_stof = [](const string& s) {
+                    return s.empty() ? 0.0f : stof(s);
+                };
+
+                canciones.emplace_back(
+                    move(campos[1]), // artist_name
+                    move(campos[2]), // track_name
+                    move(campos[3]), // track_id
+                    safe_stoi(campos[4]), // popularity
+                    safe_stoi(campos[5]), // anio
+                    move(campos[6]), // genre
+                    safe_stof(campos[7]), // danceability
+                    safe_stof(campos[8]), // energy
+                    safe_stoi(campos[9]), // key
+                    safe_stof(campos[10]), // loudness
+                    safe_stoi(campos[11]), // mode
+                    safe_stof(campos[12]), // speechiness
+                    safe_stof(campos[13]), // acousticness
+                    safe_stof(campos[14]), // instrumentalness
+                    safe_stof(campos[15]), // liveness
+                    safe_stof(campos[16]), // valence
+                    safe_stof(campos[17]), // tempo
+                    safe_stoi(campos[18]), // duration_ms
+                    4 // default time_signature
+                );
+            } catch (const exception& e) {
+                // Ignorar errores de conversión
+            }
+        }
+    }
+
+    return canciones;
+}
+
 // Clase BTree optimizada
 class BTree {
 public:
@@ -302,6 +380,17 @@ public:
         return resultado;
     }
 
+    vector<Cancion> listar_por_duracion(bool ascendente = true) const {
+        auto canciones = listar();
+        sort(canciones.begin(), canciones.end(),
+            [ascendente](const Cancion& a, const Cancion& b) {
+                return ascendente ? 
+                    a.duration_ms < b.duration_ms : 
+                    a.duration_ms > b.duration_ms;
+            });
+        return canciones;
+    }
+
 private:
     void _listar(const Nodo* nodo, vector<Cancion>& resultado) const {
         if (!nodo) return;
@@ -326,9 +415,22 @@ public:
     TrieNode trie_artistas;
     TrieNode trie_canciones;
     size_t total_canciones;
+    vector<Cancion> csv_canciones;
 
     explicit ListaReproduccion(int tamano_maximo = 3) 
         : bTree(tamano_maximo), total_canciones(0) {}
+
+    // New method to find songs in the loaded CSV data
+    vector<Cancion> buscar_canciones_por_prefijo_en_csv(const string& prefijo, bool por_artista = false) {
+        string file_path = "spotify_data.csv";
+       
+        try {
+            return cargar_csv_por_prefijo(file_path, prefijo, por_artista);
+        } catch (const runtime_error& e) {
+            cerr << e.what() << '\n';
+            return {};
+        }
+    }
 
     void agregar_cancion(const Cancion& cancion) {
         bTree.insertar(cancion);
@@ -357,86 +459,6 @@ public:
         return false;
     }
 
-    bool eliminar_cancion_por_nombre(const string& nombre, bool por_artista = false) {
-    auto canciones = buscar_canciones_por_trie(nombre, por_artista);
-    
-    if (canciones.empty()) {
-       cout << "No se encontraron canciones.\n";
-       return false;
-    }
-    
-    // Si hay múltiples canciones, mostrar opciones
-    if (canciones.size() > 1) {
-        cout << "Se encontraron múltiples canciones:\n";
-        for (size_t i = 0; i < canciones.size(); ++i) {
-            cout << i + 1 << ". " 
-                 << canciones[i].track_name 
-                 << " - " << canciones[i].artist_name 
-                 << " (ID: " << canciones[i].track_id << ")\n";
-        }
-        
-        size_t seleccion;
-        cout << "Seleccione el número de la canción a eliminar: ";
-        cin >> seleccion;
-        
-        if (seleccion < 1 || seleccion > canciones.size()) {
-            cout << "Selección inválida.\n";
-            return false;
-        }
-        
-        return eliminar_cancion(canciones[seleccion - 1].track_id);
-    }
-    
-    // Si solo hay una canción
-    return eliminar_cancion(canciones[0].track_id);
-}
-
-// Función para mover una canción
-void mover_cancion_por_nombre(const string& nombre, size_t nueva_posicion, bool por_artista = false) {
-    auto canciones = buscar_canciones_por_trie(nombre, por_artista);
-    
-    if (canciones.empty()) {
-        cout << "No se encontraron canciones.\n";
-        return;
-    }
-    
-    // Si hay múltiples canciones, mostrar opciones
-    if (canciones.size() > 1) {
-        cout << "Se encontraron múltiples canciones:\n";
-        for (size_t i = 0; i < canciones.size(); ++i) {
-            cout << i + 1 << ". " 
-                 << canciones[i].track_name 
-                 << " - " << canciones[i].artist_name 
-                 << " (ID: " << canciones[i].track_id << ")\n";
-        }
-        
-        size_t seleccion;
-        cout << "Seleccione el número de la canción a mover: ";
-        cin >> seleccion;
-        
-        if (seleccion < 1 || seleccion > > canciones.size()) {
-            cout << "Selección inválida.\n";
-            return;
-        }
-        
-        try {
-            bTree.mover_cancion(canciones[seleccion - 1].track_id, nueva_posicion);
-            cout << "Canción movida.\n";
-        } catch (const exception& e) {
-            cout << "Error: " << e.what() << "\n";
-        }
-        return;
-    }
-    
-    // Si solo hay una canción
-    try {
-        bTree.mover_cancion(canciones[0].track_id, nueva_posicion);
-        cout << "Canción movida.\n";
-    } catch (const exception& e) {
-        cout << "Error: " << e.what() << "\n";
-    }
-
-
     void reproducir_aleatoria() const {
         auto canciones = listar_canciones();
         if (canciones.empty()) {
@@ -452,24 +474,109 @@ void mover_cancion_por_nombre(const string& nombre, size_t nueva_posicion, bool 
              << " - " << cancion.artist_name << endl;
     }
     
-    // Nueva función para buscar canciones por prefijo de artista o canción
-    vector<Cancion> buscar_por_prefijo(const string& prefijo, bool buscar_artista = true) {
-    vector<Cancion> resultados;
-    vector<string> track_ids = buscar_artista ? 
-        trie_artistas.buscar_prefijo(prefijo) : 
-        trie_canciones.buscar_prefijo(prefijo);
-    
-    // Add output to help users understand search results
-    cout << "Encontrados " << track_ids.size() << " resultados para el prefijo \"" 
-         << prefijo << "\"" << endl;
-    
-    for (const auto& track_id : track_ids) {
-        auto cancion = bTree.buscar(track_id);
-        if (cancion) {
-            resultados.push_back(*cancion);
+        // En la clase ListaReproduccion
+
+    vector<Cancion> buscar_canciones_por_trie(const string& prefijo, bool por_artista = false) {
+        vector<Cancion> resultados_playlist;
+        TrieNode& trie = por_artista ? trie_artistas : trie_canciones;
+
+        // Obtener IDs de canciones usando el Trie
+        vector<string> track_ids = trie.buscar_prefijo(prefijo);
+
+        for (const auto& track_id : track_ids) {
+            auto cancion = bTree.buscar(track_id);
+            if (cancion) {
+                // Verificar si la cadena comienza exactamente con el prefijo
+                bool cumple_prefijo = por_artista ?
+                    (cancion->artist_name.substr(0, prefijo.length()) == prefijo) :
+                    (cancion->track_name.substr(0, prefijo.length()) == prefijo);
+
+                if (cumple_prefijo) {
+                    resultados_playlist.push_back(*cancion);
+                }
+            }
         }
+
+        return resultados_playlist;
     }
-    return resultados;
+
+    bool eliminar_cancion_por_nombre(const string& nombre, bool por_artista = false) {
+        auto canciones = buscar_canciones_por_trie(nombre, por_artista);
+        
+        if (canciones.empty()) {
+            cout << "No se encontraron canciones.\n";
+            return false;
+        }
+        
+        // Si hay múltiples canciones, mostrar opciones
+        if (canciones.size() > 1) {
+            cout << "Se encontraron múltiples canciones:\n";
+            for (size_t i = 0; i < canciones.size(); ++i) {
+                cout << i + 1 << ". " 
+                     << canciones[i].track_name 
+                     << " - " << canciones[i].artist_name 
+                     << " (ID: " << canciones[i].track_id << ")\n";
+            }
+            
+            size_t seleccion;
+            cout << "Seleccione el número de la canción a eliminar: ";
+            cin >> seleccion;
+            
+            if (seleccion < 1 || seleccion > canciones.size()) {
+                cout << "Selección inválida.\n";
+                return false;
+            }
+            
+            return eliminar_cancion(canciones[seleccion - 1].track_id);
+        }
+        
+        // Si solo hay una canción
+        return eliminar_cancion(canciones[0].track_id);
+    }
+    
+    void mover_cancion_por_nombre(const string& nombre, size_t nueva_posicion, bool por_artista = false) {
+        auto canciones = buscar_canciones_por_trie(nombre, por_artista);
+        
+        if (canciones.empty()) {
+            cout << "No se encontraron canciones.\n";
+            return;
+        }
+        
+        // Si hay múltiples canciones, mostrar opciones
+        if (canciones.size() > 1) {
+            cout << "Se encontraron múltiples canciones:\n";
+            for (size_t i = 0; i < canciones.size(); ++i) {
+                cout << i + 1 << ". " 
+                     << canciones[i].track_name 
+                     << " - " << canciones[i].artist_name 
+                     << " (ID: " << canciones[i].track_id << ")\n";
+            }
+            
+            size_t seleccion;
+            cout << "Seleccione el número de la canción a mover: ";
+            cin >> seleccion;
+            
+            if (seleccion < 1 || seleccion > canciones.size()) {
+                cout << "Selección inválida.\n";
+                return;
+            }
+            
+            try {
+                bTree.mover_cancion(canciones[seleccion - 1].track_id, nueva_posicion);
+                cout << "Canción movida.\n";
+            } catch (const exception& e) {
+                cout << "Error: " << e.what() << "\n";
+            }
+            return;
+        }
+        
+        // Si solo hay una canción
+        try {
+            bTree.mover_cancion(canciones[0].track_id, nueva_posicion);
+            cout << "Canción movida.\n";
+        } catch (const exception& e) {
+            cout << "Error: " << e.what() << "\n";
+        }
     }
     
     struct Pagina {
@@ -493,7 +600,14 @@ void mover_cancion_por_nombre(const string& nombre, size_t nueva_posicion, bool 
         auto canciones = bTree.obtener_por_anio(anio);
         return paginar(canciones, pagina, canciones_por_pagina);
     }
+
+    Pagina listar_por_duracion_paginado(bool ascendente = true, size_t pagina = 1, size_t canciones_por_pagina = 200) const {
+        auto canciones = bTree.listar_por_duracion(ascendente);
+        return paginar(canciones, pagina, canciones_por_pagina);
+    }
+
   private:
+
     Pagina paginar(const vector<Cancion>& canciones, size_t pagina, size_t canciones_por_pagina) const {
         size_t total_canciones = canciones.size();
         size_t total_paginas = (total_canciones + canciones_por_pagina - 1) / canciones_por_pagina;
@@ -519,46 +633,65 @@ void mover_cancion_por_nombre(const string& nombre, size_t nueva_posicion, bool 
     }
 };
 
-// Función para cargar CSV con mejoras
+// Optimización de carga de CSV
 vector<Cancion> cargar_csv(const string& file_path) {
     vector<Cancion> canciones;
     
+    // Abrir el archivo con ifstream en modo binario para mayor eficiencia
     ifstream file(file_path, ios::binary | ios::ate);
     
     if (!file.is_open()) {
         throw runtime_error("No se pudo abrir el archivo: " + file_path);
     }
 
+    // Obtener tamaño del archivo de manera más eficiente
     streamsize file_size = file.tellg();
     file.seekg(0, ios::beg);
+
+    // Reserva de memoria con tamaño más preciso
     canciones.reserve(file_size / 250);  // Estimación más ajustada
 
+    // Buffer para lectura de líneas
     string linea;
     linea.reserve(300);  // Reservar memoria para cada línea
 
-    getline(file, linea); // Saltar encabezado
+    // Saltar encabezado
+    getline(file, linea);
 
+    // Usar vectores de strings con reserva para parsing
     vector<string> campos;
     campos.reserve(20);
 
+    // Contador de progreso y medición de tiempo
     size_t contador = 0;
     auto inicio = chrono::high_resolution_clock::now();
 
+    // Parsing más rápido con parsing manual
     while (getline(file, linea)) {
         campos.clear();
         
+        // Parsing de CSV manual más rápido que stringstream
         size_t pos = 0;
         size_t next_pos = 0;
         while ((next_pos = linea.find(',', pos)) != string::npos) {
             campos.push_back(linea.substr(pos, next_pos - pos));
             pos = next_pos + 1;
         }
+        // Añadir último campo
         campos.push_back(linea.substr(pos));
 
+        // Parseo robusto con conversiones seguras
         try {
-            auto safe_stoi = [](const string& s) { return s.empty() ? 0 : stoi(s); };
-            auto safe_stof = [](const string& s) { return s.empty() ? 0.0f : stof(s); };
+            // Funciones lambda para conversiones seguras
+            auto safe_stoi = [](const string& s) { 
+                return s.empty() ? 0 : stoi(s); 
+            };
 
+            auto safe_stof = [](const string& s) { 
+                return s.empty() ? 0.0f : stof(s); 
+            };
+
+            // Construcción de Cancion con move semántics
             canciones.emplace_back(
                 move(campos[1]),    // artist_name
                 move(campos[2]),    // track_name
@@ -583,9 +716,10 @@ vector<Cancion> cargar_csv(const string& file_path) {
 
             contador++;
         } catch (const exception& e) {
-            // Manejo de errores
+        
         }
 
+        // Cada 100,000 registros, muestra progreso
         if (contador % 100000 == 0) {
             auto actual = chrono::high_resolution_clock::now();
             auto duracion = chrono::duration_cast<chrono::milliseconds>(actual - inicio);
@@ -594,7 +728,10 @@ vector<Cancion> cargar_csv(const string& file_path) {
         }
     }
 
+    // Reducir capacidad al tamaño exacto
     canciones.shrink_to_fit();
+
+    // Mostrar estadísticas finales
     auto fin = chrono::high_resolution_clock::now();
     auto duracion_total = chrono::duration_cast<chrono::milliseconds>(fin - inicio);
     
@@ -602,20 +739,48 @@ vector<Cancion> cargar_csv(const string& file_path) {
          << ". Tiempo total: " << duracion_total.count() << " ms\n";
 
     return canciones;
- }
+}
+
+size_t mostrar_menu_navegacion(size_t pagina, size_t total_paginas, bool& navegando) {
+    cout << "\nOpciones:\n";
+    cout << "1. Página siguiente\n";
+    cout << "2. Página anterior\n";
+    cout << "3. Ir a página específica\n";
+    cout << "4. Salir\n";
+
+    int opcion;
+    cin >> opcion;
+
+    switch (opcion) {
+        case 1:
+            return min(pagina + 1, total_paginas);
+        case 2:
+            return max(pagina - 1, static_cast<size_t>(1));
+        case 3:
+            cout << "Ingrese el número de página (1-" << total_paginas << "): ";
+            cin >> pagina;
+            return min(max(pagina, static_cast<size_t>(1)), total_paginas);
+        case 4:
+            navegando = false;
+            return pagina;
+        default:
+            return pagina;
+    }
+}
 
 int main() {
     try {
         ListaReproduccion playlist;
         bool running = true;
+        bool csv_cargado = false;
 
         while (running) {
             cout << "\n--- Menú Principal ---\n";
             cout << "1. Cargar canciones desde CSV\n";
             cout << "2. Listar todas las canciones\n";
-            cout << "3. Listar canciones por popularidad\n";
+            cout << "3. Listar por...\n";
             cout << "4. Buscar canciones por año\n";
-            cout << "5. Agregar una canción manualmente\n";
+            cout << "5. Agregar una canción desde CSV\n";
             cout << "6. Eliminar una canción\n";
             cout << "7. Mover una canción\n";
             cout << "8. Reproducir canción aleatoria\n";
@@ -639,249 +804,297 @@ int main() {
                     } catch (const runtime_error& e) {
                         cerr << e.what() << '\n';
                     }
+                    csv_cargado = true;
                     break;
                 }
                 case 2: { // Listar todas las canciones con paginación
-        size_t pagina = 1;
-        bool navegando = true;
-        while (navegando) {
-            auto resultado = playlist.listar_canciones_paginado(pagina);
-            
-            cout << "\nPágina " << resultado.pagina_actual << " de " << resultado.total_paginas 
-                 << " (Total canciones: " << resultado.total_canciones << ")\n";
-            
-            for (auto& cancion : resultado.canciones) {
-                cout << cancion.track_name << " - " << cancion.artist_name << " (" << cancion.anio << ")\n";
-            }
+                    size_t pagina = 1;
+                    bool navegando = true;
+                    while (navegando) {
+                        auto resultado = playlist.listar_canciones_paginado(pagina);
 
-            cout << "\nOpciones:\n";
-            cout << "1. Página siguiente\n";
-            cout << "2. Página anterior\n";
-            cout << "3. Ir a página específica\n";
-            cout << "4. Salir\n";
-            
-            int opcion;
-            cin >> opcion;
-            
-            switch (opcion) {
-                case 1:
-                    pagina = min(pagina + 1, resultado.total_paginas);
-                    break;
-                case 2:
-                    pagina = max(pagina - 1, static_cast<size_t>(1));
-                    break;
-                case 3:
-                    cout << "Ingrese el número de página (1-" << resultado.total_paginas << "): ";
-                    cin >> pagina;
-                    pagina = min(max(pagina, static_cast<size_t>(1)), resultado.total_paginas);
-                    break;
-                case 4:
-                    navegando = false;
-                    break;
-            }
-        }
-        break;
-    }
-                case 3: { // Listar canciones por popularidad con paginación
-        size_t pagina = 1;
-        bool navegando = true;
-        while (navegando) {
-            auto resultado = playlist.listar_por_popularidad_paginado(false, pagina);
-            
-            cout << "\nPágina " << resultado.pagina_actual << " de " << resultado.total_paginas 
-                 << " (Total canciones: " << resultado.total_canciones << ")\n";
-            
-            for (auto& cancion : resultado.canciones) {
-                cout << cancion.track_name << " - Popularidad: " << cancion.popularity << "\n";
-            }
+                        cout << "\nPágina " << resultado.pagina_actual << " de " << resultado.total_paginas 
+                             << " (Total canciones: " << resultado.total_canciones << ")\n";
 
-            cout << "\nOpciones:\n";
-            cout << "1. Página siguiente\n";
-            cout << "2. Página anterior\n";
-            cout << "3. Ir a página específica\n";
-            cout << "4. Salir\n";
-            
-            int opcion;
-            cin >> opcion;
-            
-            switch (opcion) {
-                case 1:
-                    pagina = min(pagina + 1, resultado.total_paginas);
+                        for (auto& cancion : resultado.canciones) {
+                            cout << cancion.track_name << " - " << cancion.artist_name << " (" << cancion.anio << ")\n";
+                        }
+
+                        cout << "\nOpciones:\n";
+                        cout << "1. Página siguiente\n";
+                        cout << "2. Página anterior\n";
+                        cout << "3. Ir a página específica\n";
+                        cout << "4. Salir\n";
+
+                        int opcion;
+                        cin >> opcion;
+
+                        switch (opcion) {
+                            case 1:
+                                pagina = min(pagina + 1, resultado.total_paginas);
+                                break;
+                            case 2:
+                                pagina = max(pagina - 1, static_cast<size_t>(1));
+                                break;
+                            case 3:
+                                cout << "Ingrese el número de página (1-" << resultado.total_paginas << "): ";
+                                cin >> pagina;
+                                pagina = min(max(pagina, static_cast<size_t>(1)), resultado.total_paginas);
+                                break;
+                            case 4:
+                                navegando = false;
+                                break;
+                        }
+                    }
                     break;
-                case 2:
-                    pagina = max(pagina - 1, static_cast<size_t>(1));
+                }           
+                case 3: { // Sub-menú de ordenamiento
+                    bool ordenando = true;
+                    while (ordenando) {
+                        cout << "\n--- Menú de Ordenamiento ---\n";
+                        cout << "1. Ordenar por Popularidad (Descendente)\n";
+                        cout << "2. Ordenar por Popularidad (Ascendente)\n";
+                        cout << "3. Ordenar por Duración (Descendente)\n";
+                        cout << "4. Ordenar por Duración (Ascendente)\n";
+                        cout << "5. Volver al menú principal\n";
+                        cout << "Seleccione una opción: ";
+
+                        int opcion_ordenamiento;
+                        cin >> opcion_ordenamiento;
+
+                        size_t pagina = 1;
+                        bool navegando = true;
+
+                        switch (opcion_ordenamiento) {
+                            case 1: { // Popularidad Descendente
+                                while (navegando) {
+                                    auto resultado = playlist.listar_por_popularidad_paginado(false, pagina);
+
+                                    cout << "\nPágina " << resultado.pagina_actual << " de " << resultado.total_paginas 
+                                         << " (Total canciones: " << resultado.total_canciones << ")\n";
+
+                                    for (auto& cancion : resultado.canciones) {
+                                        cout << cancion.track_name << " - Popularidad: " << cancion.popularity << "\n";
+                                    }
+
+                                    pagina = mostrar_menu_navegacion(pagina, resultado.total_paginas, navegando);
+                                }
+                                break;
+                            }
+                            case 2: { // Popularidad Ascendente
+                                while (navegando) {
+                                    auto resultado = playlist.listar_por_popularidad_paginado(true, pagina);
+
+                                    cout << "\nPágina " << resultado.pagina_actual << " de " << resultado.total_paginas 
+                                         << " (Total canciones: " << resultado.total_canciones << ")\n";
+
+                                    for (auto& cancion : resultado.canciones) {
+                                        cout << cancion.track_name << " - Popularidad: " << cancion.popularity << "\n";
+                                    }
+
+                                    pagina = mostrar_menu_navegacion(pagina, resultado.total_paginas, navegando);
+                                }
+                                break;
+                            }
+                            case 3: { // Duración Descendente
+                                while (navegando) {
+                                    auto resultado = playlist.listar_por_duracion_paginado(false, pagina);
+
+                                    cout << "\nPágina " << resultado.pagina_actual << " de " << resultado.total_paginas 
+                                         << " (Total canciones: " << resultado.total_canciones << ")\n";
+
+                                    for (auto& cancion : resultado.canciones) {
+                                        cout << cancion.track_name << " - Duración: " 
+                                             << (cancion.duration_ms / 1000 / 60) << "m " 
+                                             << (cancion.duration_ms / 1000 % 60) << "s\n";
+                                    }
+
+                                    pagina = mostrar_menu_navegacion(pagina, resultado.total_paginas, navegando);
+                                }
+                                break;
+                            }
+                            case 4: { // Duración Ascendente
+                                while (navegando) {
+                                    auto resultado = playlist.listar_por_duracion_paginado(true, pagina);
+
+                                    cout << "\nPágina " << resultado.pagina_actual << " de " << resultado.total_paginas 
+                                         << " (Total canciones: " << resultado.total_canciones << ")\n";
+
+                                    for (auto& cancion : resultado.canciones) {
+                                        cout << cancion.track_name << " - Duración: " 
+                                             << (cancion.duration_ms / 1000 / 60) << "m " 
+                                             << (cancion.duration_ms / 1000 % 60) << "s\n";
+                                    }
+
+                                    pagina = mostrar_menu_navegacion(pagina, resultado.total_paginas, navegando);
+                                }
+                                break;
+                            }
+                            case 5:
+                                ordenando = false;
+                                break;
+                            default:
+                                cout << "Opción inválida.\n";
+                        }
+                    }
                     break;
-                case 3:
-                    cout << "Ingrese el número de página (1-" << resultado.total_paginas << "): ";
-                    cin >> pagina;
-                    pagina = min(max(pagina, static_cast<size_t>(1)), resultado.total_paginas);
-                    break;
-                case 4:
-                    navegando = false;
-                    break;
-            }
-        }
-        break;
-    }
+                }           
                 case 4: { // Buscar canciones por año con paginación
-        int anio;
-        cout << "Ingrese el año: ";
-        cin >> anio;
-
-        size_t pagina = 1;
-        bool navegando = true;
-        while (navegando) {
-            auto resultado = playlist.obtener_por_anio_paginado(anio, pagina);
-            
-            cout << "\nPágina " << resultado.pagina_actual << " de " << resultado.total_paginas 
-                 << " (Total canciones del año " << anio << ": " << resultado.total_canciones << ")\n";
-            
-            for (auto& cancion : resultado.canciones) {
-                cout << cancion.track_name << " - " << cancion.artist_name << "\n";
-            }
-
-            cout << "\nOpciones:\n";
-            cout << "1. Página siguiente\n";
-            cout << "2. Página anterior\n";
-            cout << "3. Ir a página específica\n";
-            cout << "4. Salir\n";
-            
-            int opcion;
-            cin >> opcion;
-            
-            switch (opcion) {
-                case 1:
-                    pagina = min(pagina + 1, resultado.total_paginas);
-                    break;
-                case 2:
-                    pagina = max(pagina - 1, static_cast<size_t>(1));
-                    break;
-                case 3:
-                    cout << "Ingrese el número de página (1-" << resultado.total_paginas << "): ";
-                    cin >> pagina;
-                    pagina = min(max(pagina, static_cast<size_t>(1)), resultado.total_paginas);
-                    break;
-                case 4:
-                    navegando = false;
-                    break;
-            }
-        }
-        break;
-    }
-                case 5: { // Agregar una canción manualmente
-                    string artist_name, track_name, track_id, genre;
-                    int popularity, anio, key, mode, duration_ms, time_signature;
-                    float danceability, energy, loudness, speechiness, acousticness, 
-                          instrumentalness, liveness, valence, tempo;
-
-                    cout << "Ingrese los detalles de la canción:\n";
-                    cin.ignore();
-                    
-                    cout << "Artista: ";
-                    getline(cin, artist_name);
-                    cout << "Nombre de la canción: ";
-                    getline(cin, track_name);
-                    cout << "ID de la canción: ";
-                    getline(cin, track_id);
-                    cout << "Popularidad (0-100): ";
-                    cin >> popularity;
-                    cout << "Año: ";
+                    int anio;
+                    cout << "Ingrese el año: ";
                     cin >> anio;
-                    cin.ignore();
-                    cout << "Género: ";
-                    getline(cin, genre);
-                    cout << "Danceability (0-1): ";
-                    cin >> danceability;
-                    cout << "Energy (0-1): ";
-                    cin >> energy;
-                    cout << "Key (0-11): ";
-                    cin >> key;
-                    cout << "Loudness (-60 to 0): ";
-                    cin >> loudness;
-                    cout << "Mode (0-1): ";
-                    cin >> mode;
-                    cout << "Speechiness (0-1): ";
-                    cin >> speechiness;
-                    cout << "Acousticness (0-1): ";
-                    cin >> acousticness;
-                    cout << "Instrumentalness (0-1): ";
-                    cin >> instrumentalness;
-                    cout << "Liveness (0-1): ";
-                    cin >> liveness;
-                    cout << "Valence (0-1): ";
-                    cin >> valence;
-                    cout << "Tempo (BPM): ";
-                    cin >> tempo;
-                    cout << "Duración (ms): ";
-                    cin >> duration_ms;
-                    cout << "Time Signature (default 4): ";
-                    cin >> time_signature;
 
-                    Cancion nueva_cancion(artist_name, track_name, track_id, popularity, 
-                                          anio, genre, danceability, energy, key, 
-                                          loudness, mode, speechiness, acousticness, 
-                                          instrumentalness, liveness, valence, 
-                                          tempo, duration_ms, time_signature);
-                    playlist.agregar_cancion(nueva_cancion);
+                    size_t pagina = 1;
+                    bool navegando = true;
+                    while (navegando) {
+                        auto resultado = playlist.obtener_por_anio_paginado(anio, pagina);
+
+                        cout << "\nPágina " << resultado.pagina_actual << " de " << resultado.total_paginas 
+                             << " (Total canciones del año " << anio << ": " << resultado.total_canciones << ")\n";
+
+                        for (auto& cancion : resultado.canciones) {
+                            cout << cancion.track_name << " - " << cancion.artist_name << "\n";
+                        }
+
+                        cout << "\nOpciones:\n";
+                        cout << "1. Página siguiente\n";
+                        cout << "2. Página anterior\n";
+                        cout << "3. Ir a página específica\n";
+                        cout << "4. Salir\n";
+
+                        int opcion;
+                        cin >> opcion;
+
+                        switch (opcion) {
+                            case 1:
+                                pagina = min(pagina + 1, resultado.total_paginas);
+                                break;
+                            case 2:
+                                pagina = max(pagina - 1, static_cast<size_t>(1));
+                                break;
+                            case 3:
+                                cout << "Ingrese el número de página (1-" << resultado.total_paginas << "): ";
+                                cin >> pagina;
+                                pagina = min(max(pagina, static_cast<size_t>(1)), resultado.total_paginas);
+                                break;
+                            case 4:
+                                navegando = false;
+                                break;
+                        }
+                    }
+                    break;
+                }
+                case 5: { // Agregar una canción desde CSV
+                    string prefijo;
+                    int tipo_busqueda;
+
+                    cout << "Buscar canción por:\n1. Nombre de canción\n2. Nombre de artista\nElija una opción: ";
+                    cin >> tipo_busqueda;
+
+                    cout << "Ingrese el prefijo de búsqueda: ";
+                    cin >> prefijo;
+
+                    vector<Cancion> resultados = tipo_busqueda == 1 ?
+                        playlist.buscar_canciones_por_prefijo_en_csv(prefijo, false) :
+                        playlist.buscar_canciones_por_prefijo_en_csv(prefijo, true);
+
+                    if (resultados.empty()) {
+                        cout << "No se encontraron canciones.\n";
+                        break;
+                    }
+
+                    // Mostrar resultados
+                    for (size_t i = 0; i < resultados.size(); ++i) {
+                        cout << i + 1 << ". "
+                             << resultados[i].track_name
+                             << " - " << resultados[i].artist_name
+                             << " (" << resultados[i].anio << ")\n";
+                    }
+
+                    size_t seleccion;
+                    cout << "Seleccione el número de la canción a agregar: ";
+                    cin >> seleccion;
+
+                    if (seleccion < 1 || seleccion > resultados.size()) {
+                        cout << "Selección inválida.\n";
+                        break;
+                    }
+
+                    // Agregar la canción seleccionada a la playlist
+                    playlist.agregar_cancion(resultados[seleccion - 1]);
                     cout << "Canción agregada exitosamente.\n";
                     break;
-                }
+                }               
                 case 6: { // Eliminar una canción
-                    string track_id;
-                    cout << "Ingrese el ID de la canción a eliminar: ";
-                    cin >> track_id;
-                    if (playlist.eliminar_cancion(track_id)) {
-                        cout << "Canción eliminada.\n";
-                    } else {
-                        cout << "Canción no encontrada.\n";
+                    int tipo_busqueda;
+                    string nombre;
+                    cout << "Eliminar por:\n1. Nombre de canción\n2. Nombre de artista\nElija una opción: ";
+                    cin >> tipo_busqueda;
+                    cout << "Ingrese el nombre: ";
+                    cin.ignore();
+                    getline(cin, nombre);
+
+                    if (tipo_busqueda == 1) {
+                        playlist.eliminar_cancion_por_nombre(nombre, false);
+                    } else if (tipo_busqueda == 2) {
+                        playlist.eliminar_cancion_por_nombre(nombre, true);
                     }
                     break;
                 }
+
                 case 7: { // Mover una canción
-                    string track_id;
-                    int nueva_posicion;
-                    cout << "Ingrese el ID de la canción a mover: ";
-                    cin >> track_id;
+                    int tipo_busqueda;
+                    string nombre;
+                    size_t nueva_posicion;
+
+                    cout << "Mover por:\n1. Nombre de canción\n2. Nombre de artista\nElija una opción: ";
+                    cin >> tipo_busqueda;
+
+                    cout << "Ingrese el nombre: ";
+                    cin.ignore();
+                    getline(cin, nombre);
+
                     cout << "Ingrese la nueva posición (0 para la primera): ";
                     cin >> nueva_posicion;
-                    try {
-                        playlist.bTree.mover_cancion(track_id, nueva_posicion);
-                        cout << "Canción movida.\n";
-                    } catch (const exception& e) {
-                        cout << "Error: " << e.what() << "\n";
+
+                    if (tipo_busqueda == 1) {
+                        playlist.mover_cancion_por_nombre(nombre, nueva_posicion, false);
+                    } else if (tipo_busqueda == 2) {
+                        playlist.mover_cancion_por_nombre(nombre, nueva_posicion, true);
                     }
-                    break;
-                }
+                break;
+                }  
                 case 8: { // Reproducir canción aleatoria
                     playlist.reproducir_aleatoria();
                     break;
                 }
-                case 9: { // Buscar canciones por prefijo de artista o canción
+                case 9: { // Buscar canciones por prefijo
                     string prefijo;
                     int tipo_busqueda;
                     cout << "Ingrese el prefijo a buscar: ";
                     cin >> prefijo;
                     cout << "Buscar por:\n1. Artista\n2. Canción\nElija una opción: ";
                     cin >> tipo_busqueda;
-    
-                    vector<Cancion> resultados = tipo_busqueda == 1 ?
-                    playlist.buscar_por_prefijo(prefijo, true) :
-                    playlist.buscar_por_prefijo(prefijo, false);
-    
-                    cout << "Resultados:\n";
-                    for (const auto& cancion : resultados) {
-                        cout << cancion.track_name << " - " << cancion.artist_name << "\n";
+
+                    vector<Cancion> resultados_playlist = playlist.buscar_canciones_por_trie(prefijo, tipo_busqueda == 1);
+                    vector<Cancion> resultados_csv = tipo_busqueda == 1 ?
+                        playlist.buscar_canciones_por_prefijo_en_csv(prefijo, true) :
+                        playlist.buscar_canciones_por_prefijo_en_csv(prefijo, false);
+
+                    cout << "Resultados en la playlist:\n";
+                    for (const auto& cancion : resultados_playlist) {
+                        cout << cancion.track_name << " - " << cancion.artist_name << " (En playlist)\n";
+                    }
+
+                    cout << "\nResultados en CSV:\n";
+                    for (const auto& cancion : resultados_csv) {
+                        cout << cancion.track_name << " - " << cancion.artist_name << " (En CSV)\n";
                     }
                     break;
                 }
                 case 10: { // Salir
                     running = false;
                     cout << "Saliendo del programa...\n";
-                    break;
-
-                }
-                default: {
-                    cout << "Opción no válida. Intente de nuevo.\n";
                     break;
                 }
             }
@@ -890,45 +1103,6 @@ int main() {
         cerr << "Error: " << e.what() << '\n';
         return 1;
     }
-Pagina listar_canciones_paginado(size_t pagina = 1, size_t canciones_por_pagina = 200) const {
- auto todas_canciones = bTree.listar();
- return paginar(todas_canciones, pagina, canciones_por_pagina);}
-    size_t mostrar_menu_navegacion(size_t pagina, size_t total_paginas, bool& navegando) {
-  cout << "\nOpciones:\n";
-   cout << "1. Página siguiente\n";
-   cout << "2. Página anterior\n";
-   cout << "3. Ir a página específica\n";
-   cout << "4. Salir\n";
-
-   int opcion;
-  cin >> opcion;
-
- switch (opcion) {
-        case 1:
-            return min(pagina + 1, total_paginas);
-        case 2:
-            return max(pagina - 1, static_cast<size_t>(1));
-        case 3:
-            cout << "Ingrese el número de página (1-" << total_paginas << "): ";
-            cin >> pagina;
-            return min(max(pagina, static_cast<size_t>(1)), total_paginas);
-        case 4:
-            navegando = false;
-           return pagina;
-        default:
-            return pagina;
-    }
-}
-    
-vector<Cancion> listar_por_popularidad_paginado(bool ascendente = true, size_t pagina = 1, size_t canciones_por_pagina = 200) const {
-    auto canciones = bTree.listar_por_popularidad(ascendente);
-   return paginar(canciones, pagina, canciones_por_pagina);
-}
-
-    vector<Cancion> listar_por_duracion_paginado(bool ascendente = true, size_t pagina = 1, size_t canciones_por_pagina = 200) const {
-   auto canciones = bTree.listar_por_duracion(ascendente);
-   return paginar(canciones, pagina, canciones_por_pagina);
-}
 
     return 0;
 }

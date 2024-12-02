@@ -828,6 +828,11 @@ Pagina listar_canciones_paginado(size_t pagina = 1, size_t canciones_por_pagina 
             return pagina;
     }
 }
+    
+vector<Cancion> listar_por_popularidad_paginado(bool ascendente = true, size_t pagina = 1, size_t canciones_por_pagina = 200) const {
+    auto canciones = bTree.listar_por_popularidad(ascendente);
+   return paginar(canciones, pagina, canciones_por_pagina);
+}
 
     return 0;
 }

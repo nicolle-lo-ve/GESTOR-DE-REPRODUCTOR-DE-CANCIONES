@@ -442,76 +442,87 @@ public:
 // Función para cargar CSV con mejoras
 vector<Cancion> cargar_csv(const string& file_path) {
     vector<Cancion> canciones;
-    ifstream file(file_path);
+    
+    ifstream file(file_path, ios::binary | ios::ate);
     
     if (!file.is_open()) {
         throw runtime_error("No se pudo abrir el archivo: " + file_path);
     }
 
-    // Determine file size for more accurate pre-allocation
-    file.seekg(0, ios::end);
-    size_t file_size = file.tellg();
+    streamsize file_size = file.tellg();
     file.seekg(0, ios::beg);
-
-    // Pre-allocate memory based on estimated number of records
-    // Estimate: Average record size is about 300 bytes
-    canciones.reserve(min(file_size / 300, static_cast<size_t>(100000)));
+    canciones.reserve(file_size / 250);  // Estimación más ajustada
 
     string linea;
-    string header;
-    getline(file, header); // Skip header
+    linea.reserve(300);  // Reservar memoria para cada línea
 
-    // Use more efficient string parsing
+    getline(file, linea); // Saltar encabezado
+
+    vector<string> campos;
+    campos.reserve(20);
+
+    size_t contador = 0;
+    auto inicio = chrono::high_resolution_clock::now();
+
     while (getline(file, linea)) {
+        campos.clear();
+        
+        size_t pos = 0;
+        size_t next_pos = 0;
+        while ((next_pos = linea.find(',', pos)) != string::npos) {
+            campos.push_back(linea.substr(pos, next_pos - pos));
+            pos = next_pos + 1;
+        }
+        campos.push_back(linea.substr(pos));
+
         try {
-            istringstream ss(linea);
-            vector<string> campos(20);
-            string campo;
-            int indice = 0;
+            auto safe_stoi = [](const string& s) { return s.empty() ? 0 : stoi(s); };
+            auto safe_stof = [](const string& s) { return s.empty() ? 0.0f : stof(s); };
 
-            while (getline(ss, campo, ',')) {
-                // Simple trim function to remove quotes
-                if (!campo.empty() && campo.front() == '"' && campo.back() == '"') {
-                    campo = campo.substr(1, campo.length() - 2);
-                }
-                campos[indice++] = move(campo);
-                
-                // Break if we've reached expected number of fields
-                if (indice >= 19) break;
-            }
-
-            // Robust parsing with default values
-            campos.resize(19); // Ensure full size
             canciones.emplace_back(
-                campos[1], campos[2], campos[3], 
-                campos[4].empty() ? 0 : stoi(campos[4]),
-                campos[5].empty() ? 0 : stoi(campos[5]),
-                campos[6], 
-                campos[7].empty() ? 0.0f : stof(campos[7]),
-                campos[8].empty() ? 0.0f : stof(campos[8]),
-                campos[9].empty() ? 0 : stoi(campos[9]),
-                campos[10].empty() ? 0.0f : stof(campos[10]),
-                campos[11].empty() ? 0 : stoi(campos[11]),
-                campos[12].empty() ? 0.0f : stof(campos[12]),
-                campos[13].empty() ? 0.0f : stof(campos[13]),
-                campos[14].empty() ? 0.0f : stof(campos[14]),
-                campos[15].empty() ? 0.0f : stof(campos[15]),
-                campos[16].empty() ? 0.0f : stof(campos[16]),
-                campos[17].empty() ? 0.0f : stof(campos[17]),
-                campos[18].empty() ? 0 : stoi(campos[18]),
-                4 // default time_signature
+                move(campos[1]),    // artist_name
+                move(campos[2]),    // track_name
+                move(campos[3]),    // track_id
+                safe_stoi(campos[4]),   // popularity
+                safe_stoi(campos[5]),   // anio
+                move(campos[6]),    // genre
+                safe_stof(campos[7]),   // danceability
+                safe_stof(campos[8]),   // energy
+                safe_stoi(campos[9]),   // key
+                safe_stof(campos[10]),  // loudness
+                safe_stoi(campos[11]),  // mode
+                safe_stof(campos[12]),  // speechiness
+                safe_stof(campos[13]),  // acousticness
+                safe_stof(campos[14]),  // instrumentalness
+                safe_stof(campos[15]),  // liveness
+                safe_stof(campos[16]),  // valence
+                safe_stof(campos[17]),  // tempo
+                safe_stoi(campos[18]),  // duration_ms
+                4                       // default time_signature
             );
+
+            contador++;
         } catch (const exception& e) {
-            
+            // Manejo de errores
+        }
+
+        if (contador % 100000 == 0) {
+            auto actual = chrono::high_resolution_clock::now();
+            auto duracion = chrono::duration_cast<chrono::milliseconds>(actual - inicio);
+            cout << "Procesados " << contador << " registros. Tiempo: " 
+                 << duracion.count() << " ms\n";
         }
     }
 
-    // Optional: shrink to fit to reduce memory overhead
     canciones.shrink_to_fit();
+    auto fin = chrono::high_resolution_clock::now();
+    auto duracion_total = chrono::duration_cast<chrono::milliseconds>(fin - inicio);
+    
+    cout << "Carga completa. Total canciones: " << canciones.size() 
+         << ". Tiempo total: " << duracion_total.count() << " ms\n";
 
-    cout << "Loaded " << canciones.size() << " songs successfully.\n";
     return canciones;
-}
+ }
 
 int main() {
     try {

@@ -834,5 +834,10 @@ vector<Cancion> listar_por_popularidad_paginado(bool ascendente = true, size_t p
    return paginar(canciones, pagina, canciones_por_pagina);
 }
 
+    vector<Cancion> listar_por_duracion_paginado(bool ascendente = true, size_t pagina = 1, size_t canciones_por_pagina = 200) const {
+   auto canciones = bTree.listar_por_duracion(ascendente);
+   return paginar(canciones, pagina, canciones_por_pagina);
+}
+
     return 0;
 }

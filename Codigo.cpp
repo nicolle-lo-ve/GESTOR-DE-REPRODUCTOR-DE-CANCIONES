@@ -357,6 +357,86 @@ public:
         return false;
     }
 
+    bool eliminar_cancion_por_nombre(const string& nombre, bool por_artista = false) {
+    auto canciones = buscar_canciones_por_trie(nombre, por_artista);
+    
+    if (canciones.empty()) {
+       cout << "No se encontraron canciones.\n";
+       return false;
+    }
+    
+    // Si hay múltiples canciones, mostrar opciones
+    if (canciones.size() > 1) {
+        cout << "Se encontraron múltiples canciones:\n";
+        for (size_t i = 0; i < canciones.size(); ++i) {
+            cout << i + 1 << ". " 
+                 << canciones[i].track_name 
+                 << " - " << canciones[i].artist_name 
+                 << " (ID: " << canciones[i].track_id << ")\n";
+        }
+        
+        size_t seleccion;
+        cout << "Seleccione el número de la canción a eliminar: ";
+        cin >> seleccion;
+        
+        if (seleccion < 1 || seleccion > canciones.size()) {
+            cout << "Selección inválida.\n";
+            return false;
+        }
+        
+        return eliminar_cancion(canciones[seleccion - 1].track_id);
+    }
+    
+    // Si solo hay una canción
+    return eliminar_cancion(canciones[0].track_id);
+}
+
+// Función para mover una canción
+void mover_cancion_por_nombre(const string& nombre, size_t nueva_posicion, bool por_artista = false) {
+    auto canciones = buscar_canciones_por_trie(nombre, por_artista);
+    
+    if (canciones.empty()) {
+        cout << "No se encontraron canciones.\n";
+        return;
+    }
+    
+    // Si hay múltiples canciones, mostrar opciones
+    if (canciones.size() > 1) {
+        cout << "Se encontraron múltiples canciones:\n";
+        for (size_t i = 0; i < canciones.size(); ++i) {
+            cout << i + 1 << ". " 
+                 << canciones[i].track_name 
+                 << " - " << canciones[i].artist_name 
+                 << " (ID: " << canciones[i].track_id << ")\n";
+        }
+        
+        size_t seleccion;
+        cout << "Seleccione el número de la canción a mover: ";
+        cin >> seleccion;
+        
+        if (seleccion < 1 || seleccion > > canciones.size()) {
+            cout << "Selección inválida.\n";
+            return;
+        }
+        
+        try {
+            bTree.mover_cancion(canciones[seleccion - 1].track_id, nueva_posicion);
+            cout << "Canción movida.\n";
+        } catch (const exception& e) {
+            cout << "Error: " << e.what() << "\n";
+        }
+        return;
+    }
+    
+    // Si solo hay una canción
+    try {
+        bTree.mover_cancion(canciones[0].track_id, nueva_posicion);
+        cout << "Canción movida.\n";
+    } catch (const exception& e) {
+        cout << "Error: " << e.what() << "\n";
+    }
+
+
     void reproducir_aleatoria() const {
         auto canciones = listar_canciones();
         if (canciones.empty()) {

@@ -799,6 +799,8 @@ int main() {
         cerr << "Error: " << e.what() << '\n';
         return 1;
     }
-
+Pagina listar_canciones_paginado(size_t pagina = 1, size_t canciones_por_pagina = 200) const {
+ auto todas_canciones = bTree.listar();
+ return paginar(todas_canciones, pagina, canciones_por_pagina);
     return 0;
 }
